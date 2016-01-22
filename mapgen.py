@@ -2,6 +2,7 @@
 
 import argparse
 import itertools
+import json
 import random
 import sys
 
@@ -11,6 +12,9 @@ PARSER.add_argument('--animate', action='store_true', help='Animate the segment 
 PARSER.add_argument('--interactive', action='store_true', help='Pause after every segment consideration (requires --interactive)')
 PARSER.add_argument('--delay', default=50, type=int, help='Time to show each frame, in milliseconds (requires --animate)')
 PARSER.add_argument('--report_call_counts', action='store_true', help='Report how many times intersection() and addSegment() are called')
+saveLoadPoints = PARSER.add_mutually_exclusive_group()
+saveLoadPoints.add_argument('--save_points', help='Save randomly-generated points out to a file')
+saveLoadPoints.add_argument('--load_points', help='Load previously-generated points from a file')
 ARGS = PARSER.parse_args()
 
 SIZE = 800, 800
@@ -168,11 +172,22 @@ def addSegment (newSegment):
     else:
       waitForDelay()
 
+# Points generation
 
-points = [
-  (random.random(), random.random())
-  for i in range(ARGS.num_points)
-]
+if ARGS.load_points:
+    with open(ARGS.load_points) as infile:
+        points = json.load(infile)
+else:
+    points = [
+      (random.random(), random.random())
+      for i in range(ARGS.num_points)
+    ]
+
+if ARGS.save_points:
+    with open(ARGS.save_points, 'w') as outfile:
+        json.dump(points, outfile)
+
+# Globals for segment consideration
 
 accepted_segments = []
 invalidated_segments = []
