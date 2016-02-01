@@ -12,9 +12,11 @@ from geometry import *
 PARSER = argparse.ArgumentParser(description='Voroni Diagram Generator')
 PARSER.add_argument('--num_points', default=20, type=int, help='Number of random points to generate')
 PARSER.add_argument('--animate', action='store_true', help='Animate the segment consideration algorithm')
-PARSER.add_argument('--interactive', action='store_true', help='Pause after every segment consideration (requires --interactive)')
+PARSER.add_argument('--interactive', action='store_true', help='Pause after every segment consideration (requires --animate)')
 PARSER.add_argument('--delay', default=50, type=int, help='Time to show each frame, in milliseconds (requires --animate)')
+PARSER.add_argument('--display', action='store_true', help='Don\'t render every frame, just the last one')
 PARSER.add_argument('--profile', action='store_true', help='Count the number of times certain functions are called')
+PARSER.add_argument('--cell_optimization', type=int, help='Divide the field into n-by-n cells to decrease the number of comparisons')
 saveLoadPoints = PARSER.add_mutually_exclusive_group()
 saveLoadPoints.add_argument('--save_points', help='Save randomly-generated points out to a file')
 saveLoadPoints.add_argument('--load_points', help='Load previously-generated points from a file')
@@ -36,13 +38,14 @@ ACTIVE_POINT_COLOR = GREEN
 OTHER_POINT_COLOR = GOLD
 LINE_COLOR = DARK_BLUE
 ACTIVE_LINE_COLOR = GREEN
+CELL_LINE_COLOR = GRAY
 POINT_RADIUS = 5
 LINE_WIDTH = 1
 
 if ARGS.profile:
   enable_profiling()
 
-if ARGS.animate:
+if ARGS.animate or ARGS.display:
   import pygame
 
   pygame.init()
@@ -85,6 +88,11 @@ def drawPoly(poly, color):
 
 def render ():
   SCREEN.fill(WHITE);
+  if ARGS.cell_optimization:
+    for i in range(1, ARGS.cell_optimization):
+      j = float(i) / ARGS.cell_optimization
+      drawSegment(((0,j),(1,j)), CELL_LINE_COLOR)
+      drawSegment(((j,0),(j,1)), CELL_LINE_COLOR)
   for shape in shapes:
     drawPoly(shape.vertices, LINE_COLOR)
   if activeShape is not None:
@@ -105,10 +113,44 @@ if ARGS.animate:
   else:
     waitForDelay()
 
-for p in points:
+def bucketPoints (points, divs):
+  point_cells = {
+    (x, y): []
+    for x in range(0, divs)
+    for y in range(0, divs)
+  }
+
+  for point in points:
+    point_cells[(int(point[0] * divs), int(point[1] * divs))].append(point)
+
+  return point_cells
+
+def bucketIterator (buckets):
+  for ((x, y), bucket) in buckets.items():
+    adjacent_buckets = [bucket]
+    if (x+1, y) in buckets: adjacent_buckets.append(buckets[(x+1, y)])
+    if (x-1, y) in buckets: adjacent_buckets.append(buckets[(x-1, y)])
+    if (x, y+1) in buckets: adjacent_buckets.append(buckets[(x, y+1)])
+    if (x, y-1) in buckets: adjacent_buckets.append(buckets[(x, y-1)])
+    if (x+1, y+1) in buckets: adjacent_buckets.append(buckets[(x+1, y+1)])
+    if (x-1, y+1) in buckets: adjacent_buckets.append(buckets[(x-1, y+1)])
+    if (x+1, y-1) in buckets: adjacent_buckets.append(buckets[(x+1, y-1)])
+    if (x-1, y-1) in buckets: adjacent_buckets.append(buckets[(x-1, y-1)])
+    for item in bucket:
+      yield (item, itertools.chain.from_iterable(adjacent_buckets))
+
+def nonOptimizedIterator (points):
+  for p in points:
+    yield (p, points)
+
+
+for (p, other_points) in (
+  bucketIterator(bucketPoints(points, ARGS.cell_optimization)) if ARGS.cell_optimization else
+  nonOptimizedIterator(points)
+):
   s = Shape(p)
   activeShape = s
-  for q in points:
+  for q in other_points:
     consideringPoint = q
     if p != q:
       # Midpoint and slope of perpendicular bisector
@@ -134,6 +176,6 @@ if ARGS.profile:
   for (func, count) in call_counts.items():
     print "{}.{}: {}".format(func.__module__, func.__name__, count)
 
-if ARGS.animate:
+if ARGS.animate or ARGS.display:
   render()
   waitForKey()
