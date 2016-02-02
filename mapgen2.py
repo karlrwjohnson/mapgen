@@ -113,19 +113,15 @@ if ARGS.animate:
   else:
     waitForDelay()
 
-def bucketPoints (points, divs):
-  point_cells = {
-    (x, y): []
-    for x in range(0, divs)
-    for y in range(0, divs)
-  }
-
+def bucketPointIterator (points, divs):
+  buckets = {}
   for point in points:
-    point_cells[(int(point[0] * divs), int(point[1] * divs))].append(point)
+    bucketId = (int(point[0] * divs), int(point[1] * divs))
+    if bucketId in buckets:
+      buckets[bucketId].append(point)
+    else:
+      buckets[bucketId] = [point]
 
-  return point_cells
-
-def bucketIterator (buckets):
   for ((x, y), bucket) in buckets.items():
     adjacent_buckets = [bucket]
     if (x+1, y) in buckets: adjacent_buckets.append(buckets[(x+1, y)])
@@ -145,7 +141,7 @@ def nonOptimizedIterator (points):
 
 
 for (p, other_points) in (
-  bucketIterator(bucketPoints(points, ARGS.cell_optimization)) if ARGS.cell_optimization else
+  bucketPointIterator(points, ARGS.cell_optimization) if ARGS.cell_optimization else
   nonOptimizedIterator(points)
 ):
   s = Shape(p)
