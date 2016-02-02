@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import argparse
+import functools
 import itertools
 import json
 import random
@@ -17,6 +18,8 @@ PARSER.add_argument('--delay', default=50, type=int, help='Time to show each fra
 PARSER.add_argument('--display', action='store_true', help='Don\'t render every frame, just the last one')
 PARSER.add_argument('--profile', action='store_true', help='Count the number of times certain functions are called')
 PARSER.add_argument('--cell_optimization', type=int, help='Divide the field into n-by-n cells to decrease the number of comparisons')
+PARSER.add_argument('--relaxation_passes', default=0, type=int)
+PARSER.add_argument('--relaxation_factor', default=100.0, type=float)
 saveLoadPoints = PARSER.add_mutually_exclusive_group()
 saveLoadPoints.add_argument('--save_points', help='Save randomly-generated points out to a file')
 saveLoadPoints.add_argument('--load_points', help='Load previously-generated points from a file')
@@ -54,6 +57,103 @@ if ARGS.animate or ARGS.display:
 
   from graphics import *
 
+
+shapes = []
+
+class Shape (object):
+  def __init__(self, core):
+    self.core = core
+    self.vertices = [(0,0), (1,0), (1,1), (0,1)]
+
+def drawPoly(poly, color):
+  for index in range(len(poly)):
+    drawSegment((poly[index-1], poly[index]), color)
+
+class ClearScreenRenderer (object):
+  def __init__(self, color):
+    self.color = color
+  def render (self):
+    SCREEN.fill(self.color)
+
+class CellGridRenderer (object):
+  def __init__(self, x_divs, y_divs, color):
+    self.x_divs = x_divs
+    self.y_divs = y_divs
+    self.color = color
+  def render(self):
+    for i in range(1, self.x_divs):
+      x = float(i) / self.x_divs
+      drawSegment(((x,0),(x,1)), self.color)
+    for i in range(1, self.y_divs):
+      y = float(i) / self.y_divs
+      drawSegment(((0,y),(1,y)), self.color)
+
+class PointListRenderer (object):
+  def __init__(self, point_list, color, radius=POINT_RADIUS):
+    self.point_list = point_list
+    self.color = color
+    self.radius = radius
+  def render(self):
+    for point in self.point_list:
+      pygame.draw.circle(SURF, self.color, screenCoord(point), self.radius)
+
+class PointRenderer (object):
+  def __init__(self, point, color, radius=POINT_RADIUS):
+    self.point = point
+    self.color = color
+    self.radius = radius
+  def render(self):
+    if self.point:
+      pygame.draw.circle(SURF, self.color, screenCoord(self.point), self.radius)
+
+class ShapeListRenderer (object):
+  def __init__(self, shape_list, color):
+    self.shape_list = shape_list
+    self.color = color
+  def render(self):
+    for shape in self.shape_list:
+      drawPoly(shape.vertices, self.color)
+
+class ShapeRenderer (object):
+  def __init__(self, shape, color):
+    self.shape = shape
+    self.color = color
+  def render(self):
+    if self.shape:
+      drawPoly(self.shape.vertices, self.color)
+
+class RenderStack (list):
+  def render (self):
+    for renderer in self:
+      renderer.render()
+    pygame.display.flip();
+
+def nonOptimizedIterator (points):
+  for p in points:
+    yield (p, points)
+
+def bucketPointIterator (points, divs):
+  buckets = {}
+  for point in points:
+    bucketId = (int(point[0] * divs), int(point[1] * divs))
+    if bucketId in buckets:
+      buckets[bucketId].append(point)
+    else:
+      buckets[bucketId] = [point]
+
+  for ((x, y), bucket) in buckets.items():
+    adjacent_buckets = [bucket]
+    if (x+1, y  ) in buckets: adjacent_buckets.append(buckets[(x+1, y  )])
+    if (x-1, y  ) in buckets: adjacent_buckets.append(buckets[(x-1, y  )])
+    if (x  , y+1) in buckets: adjacent_buckets.append(buckets[(x  , y+1)])
+    if (x  , y-1) in buckets: adjacent_buckets.append(buckets[(x  , y-1)])
+    if (x+1, y+1) in buckets: adjacent_buckets.append(buckets[(x+1, y+1)])
+    if (x-1, y+1) in buckets: adjacent_buckets.append(buckets[(x-1, y+1)])
+    if (x+1, y-1) in buckets: adjacent_buckets.append(buckets[(x+1, y-1)])
+    if (x-1, y-1) in buckets: adjacent_buckets.append(buckets[(x-1, y-1)])
+    for item in bucket:
+      yield (item, itertools.chain.from_iterable(adjacent_buckets))
+
 # Points generation
 
 if ARGS.load_points:
@@ -69,85 +169,79 @@ if ARGS.save_points:
     with open(ARGS.save_points, 'w') as outfile:
         json.dump(points, outfile)
 
-# Globals for segment consideration
-shapes = []
-activeShape = None
-consideringPoint = None
+renderStack = RenderStack()
+renderStack.append(ClearScreenRenderer(WHITE))
+if ARGS.cell_optimization:
+  renderStack.append(CellGridRenderer(ARGS.cell_optimization, ARGS.cell_optimization, CELL_LINE_COLOR))
+renderStack.append(PointListRenderer(points, POINT_COLOR))
+renderStack.append(ShapeListRenderer(shapes, LINE_COLOR))
 
-
-
-class Shape (object):
-  def __init__(self, core):
-    self.core = core
-    self.vertices = [(0,0), (1,0), (1,1), (0,1)]
-
-
-def drawPoly(poly, color):
-  for index in range(len(poly)):
-    drawSegment((poly[index-1], poly[index]), color)
-
-def render ():
-  SCREEN.fill(WHITE);
-  if ARGS.cell_optimization:
-    for i in range(1, ARGS.cell_optimization):
-      j = float(i) / ARGS.cell_optimization
-      drawSegment(((0,j),(1,j)), CELL_LINE_COLOR)
-      drawSegment(((j,0),(j,1)), CELL_LINE_COLOR)
-  for shape in shapes:
-    drawPoly(shape.vertices, LINE_COLOR)
-  if activeShape is not None:
-    drawPoly(activeShape.vertices, ACTIVE_LINE_COLOR)
-  for point in points:
-    pygame.draw.circle(SURF, POINT_COLOR, screenCoord(point), POINT_RADIUS)
-  if activeShape is not None:
-    pygame.draw.circle(SURF, ACTIVE_POINT_COLOR, screenCoord(activeShape.core), POINT_RADIUS)
-  if consideringPoint is not None:
-    pygame.draw.circle(SURF, OTHER_POINT_COLOR, screenCoord(consideringPoint), POINT_RADIUS)
-
-  pygame.display.flip();
-
-if ARGS.animate:
-  render()
-  if ARGS.interactive:
-    waitForKey()
-  else:
-    waitForDelay()
-
-def bucketPointIterator (points, divs):
-  buckets = {}
-  for point in points:
-    bucketId = (int(point[0] * divs), int(point[1] * divs))
-    if bucketId in buckets:
-      buckets[bucketId].append(point)
+def renderAndPause():
+  if ARGS.animate:
+    renderStack.render()
+    if ARGS.interactive:
+      waitForKey()
     else:
-      buckets[bucketId] = [point]
+      waitForDelay()
 
-  for ((x, y), bucket) in buckets.items():
-    adjacent_buckets = [bucket]
-    if (x+1, y) in buckets: adjacent_buckets.append(buckets[(x+1, y)])
-    if (x-1, y) in buckets: adjacent_buckets.append(buckets[(x-1, y)])
-    if (x, y+1) in buckets: adjacent_buckets.append(buckets[(x, y+1)])
-    if (x, y-1) in buckets: adjacent_buckets.append(buckets[(x, y-1)])
-    if (x+1, y+1) in buckets: adjacent_buckets.append(buckets[(x+1, y+1)])
-    if (x-1, y+1) in buckets: adjacent_buckets.append(buckets[(x-1, y+1)])
-    if (x+1, y-1) in buckets: adjacent_buckets.append(buckets[(x+1, y-1)])
-    if (x-1, y-1) in buckets: adjacent_buckets.append(buckets[(x-1, y-1)])
-    for item in bucket:
-      yield (item, itertools.chain.from_iterable(adjacent_buckets))
+renderAndPause()
 
-def nonOptimizedIterator (points):
-  for p in points:
-    yield (p, points)
+pointIterator = (
+  functools.partial(bucketPointIterator, divs=ARGS.cell_optimization) if ARGS.cell_optimization else
+  nonOptimizedIterator
+)
+for i in range(min(len(points),10)):
+  print points[i]
 
+def inverseSquareRepulsion((px, py), (qx, qy)):
+  delta_x = qx - px
+  delta_y = qy - py
+  invDistanceSquared = (delta_x*delta_x + delta_y*delta_y)**1.5
+  return -delta_x * invDistanceSquared, -delta_y * invDistanceSquared
 
-for (p, other_points) in (
-  bucketPointIterator(points, ARGS.cell_optimization) if ARGS.cell_optimization else
-  nonOptimizedIterator(points)
-):
+repulsion = inverseSquareRepulsion
+
+originalPointsRenderer = PointListRenderer(list(points), OTHER_POINT_COLOR)
+renderStack.append(originalPointsRenderer)
+for i in range(ARGS.relaxation_passes):
+  points[:] = [
+    vecAdd(
+      p,
+      vecMultiply(
+        ARGS.relaxation_factor,
+        vecSum([
+          repulsion(p, q)
+          for q in other_points
+          if p != q
+        ] + [
+          # Push points away from the container border by placing virtual,
+          # mirror-image points on the other side of each boundary.
+          repulsion(p, (-p[0], p[1])),
+          repulsion(p, (1-p[0], p[1])),
+          repulsion(p, (p[0], -p[1])),
+          repulsion(p, (p[0], 1-p[1])),
+        ])
+      )
+    )
+    for (p, other_points) in pointIterator(points)
+  ]
+  renderAndPause()
+
+renderStack.remove(originalPointsRenderer)
+
+activeShapeRenderer = ShapeRenderer(None, ACTIVE_LINE_COLOR)
+renderStack.append(activeShapeRenderer)
+activePointRenderer = PointRenderer(None, ACTIVE_POINT_COLOR)
+renderStack.append(activePointRenderer)
+consideringPointRenderer = PointRenderer(None, OTHER_POINT_COLOR)
+renderStack.append(consideringPointRenderer)
+
+for (p, other_points) in pointIterator(points):
   s = Shape(p)
-  activeShape = s
+  activePointRenderer.point = p
+  activeShapeRenderer.shape = s
   for q in other_points:
-    consideringPoint = q
+    consideringPointRenderer.point = q
     if p != q:
       # Midpoint and slope of perpendicular bisector
       position = tuple((p + q) / 2.0 for (p, q) in zip(p, q))
@@ -156,22 +250,18 @@ for (p, other_points) in (
 
       s.vertices = cutShape(s.core, s.vertices, position, slope)
 
-      if ARGS.animate:
-        render()
-        if ARGS.interactive:
-          waitForKey()
-        else:
-          waitForDelay()
+      renderAndPause()
 
   shapes.append(s)
 
-activeShape = None
-consideringPoint = None
+renderStack.remove(activeShapeRenderer)
+renderStack.remove(activePointRenderer)
+renderStack.remove(consideringPointRenderer)
 
 if ARGS.profile:
   for (func, count) in call_counts.items():
     print "{}.{}: {}".format(func.__module__, func.__name__, count)
 
 if ARGS.animate or ARGS.display:
-  render()
+  renderStack.render()
   waitForKey()

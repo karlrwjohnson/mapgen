@@ -203,8 +203,62 @@ assert(segmentsEquivalent( perpendicularBisector((1,1),(0,0)), ((1,0), (0,1)) ))
 assert(segmentsEquivalent( perpendicularBisector((1,0),(0,1)), ((1,1), (0,0)) ))
 assert(segmentsEquivalent( perpendicularBisector((0,1),(1,0)), ((1,1), (0,0)) ))
 
-def vecSubtract((x1, y1), (x2, y2)):
-  return (x1 - x2), (y1 - y2)
+def vecAdd(a, b):
+  if type(a) is float or type(a) is int:
+    if type(b) is float or type(b) is int:
+      return a + b
+    else:
+      return (a + b[0], a + b[1])
+  else:
+    if type(b) is float or type(b) is int:
+      return (a[0] + b, a[1] + b)
+    else:
+      return (a[0] + b[0], a[1] + b[1])
+
+assertEqual(vecAdd(3,4), 7)
+assertEqual(vecAdd(3,(2,4)), (5,7))
+assertEqual(vecAdd((3,5),7), (10,12))
+assertEqual(vecAdd((3,5),(7,11)), (10,16))
+
+def vecSubtract(a, b):
+  if type(a) is float or type(a) is int:
+    if type(b) is float or type(b) is int:
+      return a - b
+    else:
+      return (a - b[0], a - b[1])
+  else:
+    if type(b) is float or type(b) is int:
+      return (a[0] - b, a[1] - b)
+    else:
+      return (a[0] - b[0], a[1] - b[1])
+
+assertEqual(vecSubtract(3,4), -1)
+assertEqual(vecSubtract(3,(2,4)), (1,-1))
+assertEqual(vecSubtract((3,5),7), (-4,-2))
+assertEqual(vecSubtract((3,5),(7,11)), (-4,-6))
+
+def vecMultiply(a, b):
+  if type(a) is float or type(a) is int:
+    if type(b) is float or type(b) is int:
+      return a * b
+    else:
+      return (a * b[0], a * b[1])
+  else:
+    if type(b) is float or type(b) is int:
+      return (a[0] * b, a[1] * b)
+    else:
+      return (a[0] * b[0], a[1] * b[1])
+
+assertEqual(vecMultiply(3,4), 12)
+assertEqual(vecMultiply(3,(2,4)), (6,12))
+assertEqual(vecMultiply((3,5),7), (21,35))
+assertEqual(vecMultiply((3,5),(7,11)), (21,55))
+
+@debug
+def vecSum(vectors):
+  return tuple(( sum(components) for components in zip(*vectors) ))
+
+assertEqual(vecSum([(1,2),(3,4),(10,20)]), (14,26))
 
 @debug
 def crossProduct((x1, y1), (x2, y2)):
