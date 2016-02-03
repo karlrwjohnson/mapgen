@@ -97,6 +97,21 @@ class PointListRenderer (object):
     for point in self.point_list:
       pygame.draw.circle(SURF, self.color, screenCoord(point), self.radius)
 
+class PointMovementRenderer (object):
+  def __init__(self, point_list_list, color):
+    self.point_list_list = point_list_list
+    self.color = color
+  def render(self):
+    for listIdx in range(len(self.point_list_list)-1):
+      for pointIdx in range(len(self.point_list_list[listIdx])):
+        drawSegment(
+          (
+            self.point_list_list[listIdx][pointIdx],
+            self.point_list_list[listIdx+1][pointIdx]
+          ),
+          self.color
+        )
+
 class PointRenderer (object):
   def __init__(self, point, color, radius=POINT_RADIUS):
     self.point = point
@@ -190,20 +205,20 @@ pointIterator = (
   functools.partial(bucketPointIterator, divs=ARGS.cell_optimization) if ARGS.cell_optimization else
   nonOptimizedIterator
 )
-for i in range(min(len(points),10)):
-  print points[i]
 
 def inverseSquareRepulsion((px, py), (qx, qy)):
   delta_x = qx - px
   delta_y = qy - py
-  invDistanceSquared = (delta_x*delta_x + delta_y*delta_y)**1.5
+  invDistanceSquared = (delta_x*delta_x + delta_y*delta_y)**2
   return -delta_x * invDistanceSquared, -delta_y * invDistanceSquared
 
 repulsion = inverseSquareRepulsion
 
-originalPointsRenderer = PointListRenderer(list(points), OTHER_POINT_COLOR)
+# Relaxation
+originalPointsRenderer = PointMovementRenderer([points], OTHER_POINT_COLOR)
 renderStack.append(originalPointsRenderer)
 for i in range(ARGS.relaxation_passes):
+  originalPointsRenderer.point_list_list[:0] = [points[:]]
   points[:] = [
     vecAdd(
       p,
@@ -213,18 +228,41 @@ for i in range(ARGS.relaxation_passes):
           repulsion(p, q)
           for q in other_points
           if p != q
-        ] + [
-          # Push points away from the container border by placing virtual,
-          # mirror-image points on the other side of each boundary.
-          repulsion(p, (-p[0], p[1])),
-          repulsion(p, (1-p[0], p[1])),
-          repulsion(p, (p[0], -p[1])),
-          repulsion(p, (p[0], 1-p[1])),
+        #] + [
+        #  repulsion(p, (-q[0], q[1]))
+        #  for q in other_points
+        #  if p != q
+        #] + [
+        #  repulsion(p, (q[0], -q[1]))
+        #  for q in other_points
+        #  if p != q
+        #] + [
+        #  repulsion(p, (2-q[0], q[1]))
+        #  for q in other_points
+        #  if p != q
+        #] + [
+        #  repulsion(p, (q[0], 2-q[1]))
+        #  for q in other_points
+        #  if p != q
+        #] + [
+        #  # Push points away from the container border by placing virtual,
+        #  # mirror-image points on the other side of each boundary.
+        #  repulsion(p, (-p[0], p[1])),
+        #  repulsion(p, (2-p[0], p[1])),
+        #  repulsion(p, (p[0], -p[1])),
+        #  repulsion(p, (p[0], 2-p[1])),
         ])
       )
     )
-    for (p, other_points) in pointIterator(points)
+    #for (p, other_points) in pointIterator(points)
+    for (p, other_points) in nonOptimizedIterator(points)
   ]
+
+  def rail(coord):
+    return 0.0 if coord < 0.0 else 1.0 if coord > 1.0 else coord
+
+  points[:] = [ (rail(point[0]), rail(point[1])) for point in points ]
+
   renderAndPause()
 
 renderStack.remove(originalPointsRenderer)

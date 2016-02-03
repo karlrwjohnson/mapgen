@@ -9,9 +9,11 @@ def debug (func):
     try:
       ret = func(*args, **kwargs)
     except:
-      print func
-      print args
-      print kwargs
+      print "\033[31;1mPre-caught an exception via {}:{}\033[0m".format(func.__module__, func.__name__)
+      print "\033[0;1mPositional parameters were:\033[0m"
+      print "  {}".format(repr(args))
+      print "\033[0;1mNamed parameters were:\033[0m"
+      print "  {}".format(repr(kwargs))
       raise
     else:
       return ret
